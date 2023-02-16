@@ -1,6 +1,32 @@
 from django.http import JsonResponse
-
+from common.json import ModelEncoder
 from .models import Presentation
+
+
+# ----------------------------Encoders--------------------------#
+class PresentationDetailEncoder(ModelEncoder):
+    model = Presentation
+    properties = [
+        "presenter_name",
+        "company_name",
+        "presenter_email",
+        "title",
+        "synopsis",
+        "created",
+    ]
+
+
+class PresentationListEncoder(ModelEncoder):
+    model = Presentation
+    properties = [
+        "title",
+    ]
+
+    def get_extra_data(self, o):
+        return {"status": o.status.name}
+
+
+# --------------------------------------------------------------#
 
 
 def api_list_presentations(request, conference_id):
@@ -25,15 +51,12 @@ def api_list_presentations(request, conference_id):
         ]
     }
     """
-    presentations = [
-        {
-            "title": p.title,
-            "status": p.status.name,
-            "href": p.get_api_url(),
-        }
-        for p in Presentation.objects.filter(conference=conference_id)
-    ]
-    return JsonResponse({"presentations": presentations})
+    presentations = Presentation.objects.filter(conference=conference_id)
+    return JsonResponse(
+        {"presentations": presentations},
+        encoder=PresentationListEncoder,
+        safe=False,
+    )
 
 
 def api_show_presentation(request, id):
@@ -62,17 +85,8 @@ def api_show_presentation(request, id):
     }
     """
     presentation = Presentation.objects.get(id=id)
-    content = {
-        "presenter_name": presentation.presenter_name,
-        "company_name": presentation.company_name,
-        "presenter_email": presentation.presenter_email,
-        "title": presentation.title,
-        "synopsis": presentation.synopsis,
-        "created": presentation.created,
-        "status": presentation.status.name,
-        "conference": {
-            "name": presentation.conference.name,
-            "href": presentation.conference.get_api_url(),
-        },
-    }
-    return JsonResponse({"presentation": content}, safe=False)
+    return JsonResponse(
+        presentation,
+        encoder=PresentationDetailEncoder,
+        safe=False,
+    )
