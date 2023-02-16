@@ -1,7 +1,9 @@
 from django.http import JsonResponse
 from common.json import ModelEncoder
 from .models import Presentation
-
+from events.models import Conference
+from django.views.decorators.http import require_http_methods
+import json
 
 # ----------------------------Encoders--------------------------#
 class PresentationDetailEncoder(ModelEncoder):
@@ -29,6 +31,7 @@ class PresentationListEncoder(ModelEncoder):
 # --------------------------------------------------------------#
 
 
+@require_http_methods(["GET", "POST"])
 def api_list_presentations(request, conference_id):
     """
     Lists the presentation titles and the link to the
@@ -51,14 +54,32 @@ def api_list_presentations(request, conference_id):
         ]
     }
     """
-    presentations = Presentation.objects.filter(conference=conference_id)
-    return JsonResponse(
-        {"presentations": presentations},
-        encoder=PresentationListEncoder,
-        safe=False,
-    )
+    if request.method == "GET":
+        presentations = Presentation.objects.filter(conference=conference_id)
+        return JsonResponse(
+            {"presentations": presentations},
+            encoder=PresentationListEncoder,
+            safe=False,
+        )
+    else:
+        content = json.loads(request.body)
+        # not top level, so check if parent is legit. assigning foreign key
+        try:
+            conference = Conference.objects.get(id=conference_id)
+            content["conference"] = conference
+        except Conference.DoesNotExist:
+            return JsonResponse(
+                {"message": "Invalid conference id"},
+                status=400,
+            )
+        # status is a value object that wqe don't want to change within a post. This function auto assigns status property to it's default value
+        presentation = Presentation.create(**content)
+        return JsonResponse(
+            presentation, encoder=PresentationDetailEncoder, safe=False
+        )
 
 
+@require_http_methods(["GET", "DELETE", "PUT"])
 def api_show_presentation(request, id):
     """
     Returns the details for the Presentation model specified
@@ -84,9 +105,30 @@ def api_show_presentation(request, id):
         }
     }
     """
-    presentation = Presentation.objects.get(id=id)
-    return JsonResponse(
-        presentation,
-        encoder=PresentationDetailEncoder,
-        safe=False,
-    )
+    if request.method == "GET":
+        presentation = Presentation.objects.get(id=id)
+        return JsonResponse(
+            presentation,
+            encoder=PresentationDetailEncoder,
+            safe=False,
+        )
+    elif request.method == "DELETE":
+        count, _ = Presentation.objects.filter(id=id).delete()
+        return JsonResponse({"Deleted": count > 0})
+    else:
+        content = json.loads(request.body)
+        # not top level, so check if parent is legit. assigning foreign key
+        try:
+            if "conference" in content:
+                conference = Conference.objects.get(id=content["conference"])
+                content["conference"] = conference
+        except Conference.DoesNotExist:
+            return JsonResponse(
+                {"message": "Invalid conference id"},
+                status=400,
+            )
+        Presentation.objects.filter(id=id).update(**content)
+        presentation = Presentation.objects.get(id=id)
+        return JsonResponse(
+            presentation, encoder=PresentationDetailEncoder, safe=False
+        )
