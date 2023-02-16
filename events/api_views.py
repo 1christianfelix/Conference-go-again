@@ -3,6 +3,7 @@ from common.json import ModelEncoder
 from .models import Conference, Location, State
 from django.views.decorators.http import require_http_methods
 import json
+from events.acls import get_photo, get_weather_data
 
 
 # region---Encoders----
@@ -44,6 +45,7 @@ class LocationDetailEncoder(ModelEncoder):
         "room_count",
         "created",
         "updated",
+        "picture_url",
     ]
 
     def get_extra_data(self, o):
@@ -84,7 +86,6 @@ def api_list_conferences(request):
         )
     else:
         content = json.loads(request.body)
-
         # Get the Location object and put it in the content dict
         try:
             location = Location.objects.get(id=content["location"])
@@ -131,8 +132,14 @@ def api_show_conference(request, id):
     """
     if request.method == "GET":
         conference = Conference.objects.get(id=id)
+        weather = get_weather_data(
+            conference.location.city,
+            conference.location.state.abbreviation,
+        )
         return JsonResponse(
-            conference, encoder=ConferenceDetailEncoder, safe=False
+            {"conference": conference, "weather": weather},
+            encoder=ConferenceDetailEncoder,
+            safe=False,
         )
     elif request.method == "DELETE":
         count, _ = Conference.objects.filter(id=id).delete()
@@ -185,6 +192,8 @@ def api_list_locations(request):
         return JsonResponse(locations, encoder=LocationListEncoder, safe=False)
     else:
         content = json.loads(request.body)
+        picture_url = get_photo(content["city"], content["state"])
+        content["picture_url"] = picture_url
 
         # need to account for non parsable properties
         # Get the State object and put it in the content dict
