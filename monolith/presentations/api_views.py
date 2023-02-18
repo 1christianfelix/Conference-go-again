@@ -4,8 +4,12 @@ from .models import Presentation
 from events.models import Conference
 from django.views.decorators.http import require_http_methods
 import json
+from events.api_views import ConferenceListEncoder
+import pika
 
 # ----------------------------Encoders--------------------------#
+
+
 class PresentationDetailEncoder(ModelEncoder):
     model = Presentation
     properties = [
@@ -16,6 +20,12 @@ class PresentationDetailEncoder(ModelEncoder):
         "synopsis",
         "created",
     ]
+    encoders = {
+        "conference": ConferenceListEncoder(),
+    }
+
+    def get_extra_data(self, o):
+        return {"status": o.status.name}
 
 
 class PresentationListEncoder(ModelEncoder):
@@ -29,6 +39,56 @@ class PresentationListEncoder(ModelEncoder):
 
 
 # --------------------------------------------------------------#
+
+
+def producer_message(queue, message):
+    parameters = pika.ConnectionParameters(host="rabbitmq")
+    connection = pika.BlockingConnection(parameters)
+    channel = connection.channel()
+    channel.queue_declare(queue="queue")
+    channel.basic_publish(
+        exchange="",
+        routing_key=queue,
+        # body takes a string so if we're passing in a JSON/Dictionary, convert it with json.dumps
+        body=json.dumps(message),
+    )
+    connection.close()
+
+
+@require_http_methods(["PUT"])
+def api_approve_presentation(request, pk):
+    presentation = Presentation.objects.get(id=pk)
+    presentation.approve()
+    queue = "approval_queue"
+    message = {
+        "presenter_name": presentation.presenter_name,
+        "presenter_email": presentation.presenter_name,
+        "title": presentation.title,
+    }
+    producer_message(queue, message)
+    return JsonResponse(
+        presentation,
+        encoder=PresentationDetailEncoder,
+        safe=False,
+    )
+
+
+@require_http_methods(["PUT"])
+def api_reject_presentation(request, pk):
+    presentation = Presentation.objects.get(id=pk)
+    presentation.reject()
+    queue = "rejection_queue"
+    message = {
+        "presenter_name": presentation.presenter_name,
+        "presenter_email": presentation.presenter_name,
+        "title": presentation.title,
+    }
+    producer_message(queue, message)
+    return JsonResponse(
+        presentation,
+        encoder=PresentationDetailEncoder,
+        safe=False,
+    )
 
 
 @require_http_methods(["GET", "POST"])
